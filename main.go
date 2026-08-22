@@ -38,7 +38,7 @@ var (
 
 	discoveredG = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "nfs_mounts_discovered",
-		Help: "NFS mounts selected for probing on this node. Zero means the exporter is blind, not healthy.",
+		Help: "NFS mounts successfully probed on this node. Zero means the exporter is blind, not healthy.",
 	})
 
 	unreachableG = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -69,7 +69,7 @@ func main() {
 	mountTimeout := flag.Duration("mount-timeout", 5*time.Second, "per-mount statfs deadline")
 	include := flag.String("mountpoint-include", "", "regex; empty means all NFS mounts")
 	exclude := flag.String("mountpoint-exclude", "volume-subpaths", "regex of mountpoints to skip")
-	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on statfs calls started per cycle")
+	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on concurrent in-flight statfs calls")
 	serverProbe := flag.Bool("server-probe", true, "TCP-probe each server's port 2049")
 	serverTimeout := flag.Duration("server-probe-timeout", 3*time.Second, "server probe deadline")
 	flag.Parse()

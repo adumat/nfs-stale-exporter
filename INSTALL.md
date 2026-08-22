@@ -80,14 +80,16 @@ a single pod instead:
 POD=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=nfs-stale-exporter \
         -o jsonpath='{.items[0].metadata.name}')
 kubectl port-forward -n monitoring "$POD" 9855:9855 &
-curl -s localhost:9855/metrics | grep -E '^nfs_(mounts_discovered|mounts_unreachable|probe_leaked)'
+until curl -sf localhost:9855/metrics >/dev/null 2>&1; do sleep 1; done
+curl -s localhost:9855/metrics | grep -E '^nfs_(mount_stale|mounts_discovered|mounts_unreachable|probe_leaked)'
 kill %1
 ```
 
 Three checks that matter:
 
-1. `nfs_mounts_discovered` equals the NFS mount count on that node
-   (`grep -c 'kubernetes.io~nfs' /proc/mounts`). **Zero means blind, not healthy.**
+1. `nfs_mounts_discovered` + `nfs_mounts_unreachable` equals the node's NFS mount count
+   (`grep -c 'kubernetes.io~nfs' /proc/1/mounts` on the node — the exporter reads PID 1's
+   table, not its own). **A `discovered` of zero means blind, not healthy.**
 2. Every healthy mount reads `nfs_mount_stale 0`. If they all read `1` with
    `reason="permission denied"`, the securityContext did not apply.
 3. Schedule a new NFS pod *after* the exporter is running and confirm it appears —
@@ -194,14 +196,20 @@ If the NFS server itself is down, bouncing pods achieves nothing. Gate on reacha
 workloads park instead of thrashing:
 
 ```
-(max(nfs_server_reachable{server="nas.example.com"}) or vector(0))
+(max(nfs_server_reachable{server="nas.example.com"}) or vector(1))
   * on() (1 - (max(min_over_time(nfs:mount_stale:app{app="myapp"}[5m])) or vector(0)))
 ```
 
-Scope the server label: an unscoped `min()` parks **every** gated app whenever any one NFS
-server is unreachable. The `or vector(0)` is needed here too — with `--server-probe=false`,
-or while the DaemonSet is down, the series is absent and the whole expression would
-otherwise evaluate empty.
+Two details that are easy to get backwards:
+
+- **Scope the server label.** An unscoped `min(nfs_server_reachable)` parks *every* gated
+  app the moment any one NFS server is unreachable.
+- **This gate fails open (`or vector(1)`), the staleness term fails closed (`or vector(0)`).**
+  They differ on purpose. Absent reachability data means *unknown*, not *down* — and
+  treating unknown as down is a one-way trip: once the apps are parked, kubelet unmounts
+  their volumes, the server drops out of the probe set, `nfs_server_reachable` disappears
+  cluster-wide, and nothing can ever scale them back up. The same happens if you set
+  `--server-probe=false` or the DaemonSet is down. Only an observed `0` should park an app.
 
 ## Troubleshooting
 
