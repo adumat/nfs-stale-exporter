@@ -1,0 +1,26 @@
+{{- if .Values.podMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "nfs-stale-exporter.fullname" . }}
+  labels:
+    {{- include "nfs-stale-exporter.labels" . | nindent 4 }}
+    {{- with .Values.podMonitor.additionalLabels }}{{ toYaml . | nindent 4 }}{{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nfs-stale-exporter.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      interval: {{ .Values.podMonitor.interval }}
+      {{- with .Values.podMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      # prometheus-operator's defaults do not map the node name, so without this
+      # every per-node metric and alert is anonymous.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+          action: replace
+{{- end }}

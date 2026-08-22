@@ -1,2 +1,3 @@
 [tools]
 go = "1.26.1"
+"aqua:helm/helm" = "latest"

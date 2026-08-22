@@ -1,0 +1,31 @@
+nfs-stale-exporter is installed as a DaemonSet in namespace {{ .Release.Namespace }}.
+
+Verify it can actually see the mounts. The image is scratch (no shell, no wget),
+so port-forward rather than kubectl exec:
+
+  POD=$(kubectl get pod -n {{ .Release.Namespace }} \
+          -l app.kubernetes.io/name={{ include "nfs-stale-exporter.name" . }} \
+          -o jsonpath='{.items[0].metadata.name}')
+  kubectl port-forward -n {{ .Release.Namespace }} "$POD" {{ .Values.service.port }}:{{ .Values.service.port }} &
+  until curl -sf localhost:{{ .Values.service.port }}/metrics >/dev/null; do sleep 1; done
+  curl -s localhost:{{ .Values.service.port }}/metrics | grep -E '^nfs_mounts_(discovered|unreachable)'
+
+  nfs_mounts_discovered  must match the node's NFS mount count.
+  Zero means the exporter is BLIND, not that the cluster is healthy.
+
+{{ if .Values.prometheusRule.enabled -}}
+The recording rules join mount metrics to app identity through kube-state-metrics.
+That requires KSM to expose the pod label, which is NOT the default:
+
+  metricLabelsAllowlist:
+    - pods={{ printf "[%s]" .Values.prometheusRule.appLabel }}
+
+Confirm before trusting the alerts:
+
+  nfs:mount_stale:app        must return one series per NFS app
+  kube_pod_labels            must exist and carry {{ include "nfs-stale-exporter.ksmAppLabel" . }}
+
+An empty result is indistinguishable from a healthy cluster.
+{{- end }}
+
+Automatic recovery with KEDA is optional and documented in INSTALL.md section 6.

@@ -1,0 +1,113 @@
+---
+image:
+  repository: ghcr.io/adumat/nfs-stale-exporter
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+exporter:
+  # Where the HOST procfs is mounted inside the container. The exporter reads
+  # <procfs>/1/mounts, not <procfs>/mounts: /proc/mounts is a symlink to
+  # self/mounts and would yield the container's own table.
+  procfs: /host/proc
+  checkInterval: 30s
+  mountTimeout: 5s
+  # Empty means every NFS mount. Narrow it if the node has NFS mounts outside
+  # the kubelet directory that are not propagated into the container.
+  mountpointInclude: ""
+  # subPath binds are CHILDREN of the volume. A child handle can stay valid
+  # while the mount root is already stale, so probing one reports healthy on a
+  # broken mount. Do not remove this.
+  mountpointExclude: volume-subpaths
+  maxConcurrentProbes: 32
+  serverProbe: true
+  serverProbeTimeout: 3s
+  extraArgs: []
+
+# Host path of the kubelet root. Mounted at the SAME path inside the container
+# so statfs resolves exactly the paths /proc/1/mounts reports. Distros differ:
+# k0s uses /var/lib/k0s/kubelet, microk8s /var/snap/microk8s/common/var/lib/kubelet.
+kubeletDir: /var/lib/kubelet
+
+# uid 0 is REQUIRED. Unprivileged, statfs cannot traverse
+# /var/lib/kubelet/pods/<uid>/ and every mount reports "permission denied",
+# which is indistinguishable from a real fault. CAP_DAC_READ_SEARCH alone does
+# not help: Kubernetes sets no ambient capabilities, so it never becomes
+# effective for a non-root uid.
+securityContext:
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+    add: ["DAC_READ_SEARCH"]
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - operator: Exists
+affinity: {}
+priorityClassName: ""
+podAnnotations: {}
+podLabels: {}
+updateStrategy:
+  type: RollingUpdate
+
+service:
+  enabled: false
+  port: 9855
+
+podMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: ""
+  additionalLabels: {}
+
+prometheusRule:
+  enabled: true
+  additionalLabels: {}
+
+  # Pod label identifying the application. It must also be exposed by
+  # kube-state-metrics:
+  #   metricLabelsAllowlist: ["pods=[app.kubernetes.io/name]"]
+  # The chart derives the kube-state-metrics series name from this
+  # (app.kubernetes.io/name -> label_app_kubernetes_io_name). Joining on the raw
+  # name instead produces app="" for everything and silently breaks recovery.
+  appLabel: app.kubernetes.io/name
+
+  recordingRules: true
+
+  # A mount must be stale for this whole window before recovery acts, so the
+  # alert reaches a human first. Also the window a KEDA query drains after the
+  # pod is deleted.
+  gracePeriod: 5m
+
+  alerts:
+    stale:
+      enabled: true
+      for: 2m
+      severity: warning
+    unrecovered:
+      enabled: true
+      # Must exceed gracePeriod plus the time KEDA needs to act and the series
+      # to drain, or it fires while recovery is still legitimately in progress.
+      for: 20m
+      severity: critical
+    noMounts:
+      enabled: true
+      for: 15m
+      severity: warning
+  extraRules: []

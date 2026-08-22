@@ -12,10 +12,41 @@
 
 ## 1. Install
 
+### Helm (recommended)
+
+The chart renders the DaemonSet, PodMonitor, recording rules and alerts together, and
+derives the kube-state-metrics label name for you — which is the one thing that is both
+easy to get wrong and silent when wrong.
+
+```bash
+helm install nfs-stale-exporter \
+  oci://ghcr.io/adumat/charts/nfs-stale-exporter \
+  -n monitoring --create-namespace
+```
+
+Common overrides:
+
+```yaml
+# values.yaml
+kubeletDir: /var/lib/kubelet          # k0s and microk8s differ
+prometheusRule:
+  appLabel: app.kubernetes.io/name    # must match your kube-state-metrics allowlist
+  gracePeriod: 5m
+exporter:
+  checkInterval: 30s
+```
+
+`helm show values oci://ghcr.io/adumat/charts/nfs-stale-exporter` lists everything.
+
+### Plain manifests
+
 ```bash
 kubectl apply -n monitoring -f deploy/daemonset.yaml
 kubectl apply -n monitoring -f deploy/podmonitor.yaml
 ```
+
+These cover the exporter only — with them you write the recording rules and alerts in
+sections 4 and 5 yourself.
 
 Pin a release rather than `latest`:
 

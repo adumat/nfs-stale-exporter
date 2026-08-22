@@ -1,0 +1,83 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nfs-stale-exporter.fullname" . }}
+  labels:
+    {{- include "nfs-stale-exporter.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nfs-stale-exporter.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nfs-stale-exporter.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # The exporter never talks to the Kubernetes API. Pod identity is resolved
+      # in Prometheus, so it needs no ServiceAccount token and no RBAC.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: exporter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --web.listen-address=:{{ .Values.service.port }}
+            - --path.procfs={{ .Values.exporter.procfs }}
+            - --check-interval={{ .Values.exporter.checkInterval }}
+            - --mount-timeout={{ .Values.exporter.mountTimeout }}
+            - --mountpoint-include={{ .Values.exporter.mountpointInclude }}
+            - --mountpoint-exclude={{ .Values.exporter.mountpointExclude }}
+            - --max-concurrent-probes={{ .Values.exporter.maxConcurrentProbes }}
+            - --server-probe={{ .Values.exporter.serverProbe }}
+            - --server-probe-timeout={{ .Values.exporter.serverProbeTimeout }}
+            {{- with .Values.exporter.extraArgs }}{{ toYaml . | nindent 12 }}{{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: proc
+              mountPath: {{ .Values.exporter.procfs }}
+              readOnly: true
+            # Mounted at the SAME path as on the host so statfs resolves exactly
+            # the paths the mount table reports. HostToContainer is mandatory:
+            # without it only mounts existing at container start are visible, and
+            # every pod scheduled later is silently invisible.
+            - name: kubelet
+              mountPath: {{ .Values.kubeletDir }}
+              readOnly: true
+              mountPropagation: HostToContainer
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: kubelet
+          hostPath:
+            path: {{ .Values.kubeletDir }}
+            type: Directory

@@ -13,3 +13,25 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -race -v
       - run: docker build -t nfs-stale-exporter:ci .
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+      - run: helm lint chart
+      - run: helm template t chart > /tmp/default.yaml
+      - run: helm template t chart --set prometheusRule.appLabel=app.kubernetes.io/instance > /tmp/alt.yaml
+      # The kube-state-metrics label derivation is the single most damaging thing
+      # to get wrong - joining on the raw label name yields app="" everywhere and
+      # silently disables recovery. Fail here rather than in someone's cluster.
+      - run: grep -q 'label_app_kubernetes_io_name' /tmp/default.yaml
+      - run: grep -q 'label_app_kubernetes_io_instance' /tmp/alt.yaml
+      - name: Validate PromQL with promtool
+        run: |
+          python3 - <<'PY' > /tmp/rules.yaml
+          doc = open('/tmp/default.yaml').read()
+          spec = doc.split('kind: PrometheusRule', 1)[1].split('\nspec:', 1)[1]
+          print('groups:' + spec.split('groups:', 1)[1].split('\n---', 1)[0])
+          PY
+          docker run --rm -v /tmp/rules.yaml:/rules.yaml \
+            --entrypoint promtool prom/prometheus:latest check rules /rules.yaml

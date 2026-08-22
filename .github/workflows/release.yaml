@@ -48,3 +48,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  chart:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Package and push chart
+        run: |
+          VERSION="${{ needs.release-please.outputs.tag }}"
+          VERSION="${VERSION#v}"
+          helm package chart --version "$VERSION" --app-version "$VERSION"
+          helm push "nfs-stale-exporter-${VERSION}.tgz" oci://ghcr.io/${{ github.repository_owner }}/charts

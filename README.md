@@ -52,8 +52,17 @@ stale, so a probe that reads a known subdirectory passes on a broken mount. This
 
 ## Quick start
 
-Manifests are in [`deploy/`](deploy/). See [INSTALL.md](INSTALL.md) for the securityContext
-and mount propagation requirements, PromQL joins, and alert rules.
+```bash
+helm install nfs-stale-exporter \
+  oci://ghcr.io/adumat/charts/nfs-stale-exporter \
+  -n monitoring --create-namespace
+```
+
+The chart ships the DaemonSet, PodMonitor, recording rules and alerts. Plain manifests
+are in [`deploy/`](deploy/) if you would rather not use Helm.
+
+See [INSTALL.md](INSTALL.md) for configuration, verification, and optional automatic
+recovery with KEDA.
 
 ## License
 
