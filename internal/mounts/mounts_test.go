@@ -8,6 +8,7 @@ elizabeth.lan:/mnt/user/media /var/lib/kubelet/pods/00bb3ecd-7dd1-46a5-928f-5615
 elizabeth.lan:/mnt/user/cloud /var/lib/kubelet/pods/f225670d-48a2-4806-9670-71f74c10d529/volume-subpaths/paperless-media/app/1 nfs4 rw 0 0
 nas:/exports/with\040space /mnt/odd nfs rw 0 0
 /dev/sda1 /boot ext4 rw 0 0
+elizabeth.lan:/mnt/user/data /var/lib/kubelet/pods/aaaa-bbbb-cccc/volumes/kubernetes.io~csi/pvc-1234/mount nfs4 rw 0 0
 `
 
 func TestParseSelectsOnlyNFS(t *testing.T) {
@@ -15,8 +16,8 @@ func TestParseSelectsOnlyNFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("want 3 nfs mounts, got %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("want 4 nfs mounts, got %d", len(got))
 	}
 }
 
@@ -42,5 +43,17 @@ func TestParseUnescapesOctal(t *testing.T) {
 	got, _ := Parse(strings.NewReader(fixture))
 	if got[2].Export != "/exports/with space" {
 		t.Errorf("octal unescape failed: %q", got[2].Export)
+	}
+}
+
+func TestParseDecodesCSIPath(t *testing.T) {
+	// csi-driver-nfs mounts under kubernetes.io~csi/<pv>/mount. The pod UID sits
+	// in the same place regardless of which plugin mounted the volume, and
+	// without decoding it these mounts export metrics with an empty pod_uid and
+	// then vanish from the identity join - a silent partial failure.
+	got, _ := Parse(strings.NewReader(fixture))
+	m := got[3]
+	if m.PodUID != "aaaa-bbbb-cccc" || m.Volume != "pvc-1234" {
+		t.Errorf("csi decode wrong: %+v", m)
 	}
 }

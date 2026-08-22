@@ -51,3 +51,30 @@ func TestTCPUnreachable(t *testing.T) {
 		t.Error("want unreachable")
 	}
 }
+
+func TestStatfsSkipsPathAlreadyBlocked(t *testing.T) {
+	// A mount whose previous statfs never returned must not be probed again:
+	// each blocked probe pins an OS thread, so re-probing every cycle grows
+	// without bound until the exporter is OOMKilled.
+	const p = "/blocked/path"
+	inflight.Store(p, struct{}{})
+	defer inflight.Delete(p)
+
+	start := time.Now()
+	r := Statfs(p, 5*time.Second)
+	if !r.Blocked || r.OK {
+		t.Fatalf("want Blocked, got %+v", r)
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("blocked path must return immediately, took %s", time.Since(start))
+	}
+}
+
+func TestStatfsClearsInflightOnSuccess(t *testing.T) {
+	if r := Statfs("/tmp", time.Second); !r.OK {
+		t.Fatalf("want healthy, got %+v", r)
+	}
+	if _, busy := inflight.Load("/tmp"); busy {
+		t.Error("inflight must be cleared after a completed probe")
+	}
+}

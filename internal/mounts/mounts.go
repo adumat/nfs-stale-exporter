@@ -9,8 +9,15 @@ import (
 )
 
 // Only the volume ROOT is a valid probe target. subPath binds are children and
-// stay resolvable while the root is already stale.
-var kubeletRe = regexp.MustCompile(`^/var/lib/kubelet/pods/([^/]+)/volumes/kubernetes\.io~nfs/([^/]+)$`)
+// stay resolvable while the root is already stale - they live under
+// /volume-subpaths/ and so cannot match this.
+//
+// The plugin segment is deliberately wide (`kubernetes.io~[^/]+`) rather than
+// pinned to `~nfs`: csi-driver-nfs mounts under `~csi/<pv>/mount`, and the pod
+// UID sits in the same place whichever plugin did the mounting. Only NFS-fstype
+// lines reach here anyway. Pinning it would still probe CSI mounts but export
+// them with an empty pod_uid, dropping them silently from the identity join.
+var kubeletRe = regexp.MustCompile(`^/var/lib/kubelet/pods/([^/]+)/volumes/kubernetes\.io~[^/]+/([^/]+)(?:/mount)?$`)
 
 type Mount struct {
 	Device     string

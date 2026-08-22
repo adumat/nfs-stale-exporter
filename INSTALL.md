@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- Linux nodes; NFS volumes mounted by kubelet (inline `type: nfs` or NFS-backed PVs).
+- Linux nodes; NFS volumes mounted by kubelet — inline `type: nfs`, NFS-backed PVs, or
+  csi-driver-nfs. All three decode to a pod UID and work with the join in §4.
 - Prometheus (this guide assumes prometheus-operator CRDs).
 - Ability to run one DaemonSet as uid 0. See [Why root](#why-root).
 - A namespace **not** enforcing the `baseline` Pod Security Standard. `hostPath` volumes
@@ -220,4 +221,5 @@ Two details that are easy to get backwards:
 | `nfs_mounts_unreachable` is high | the node has NFS mounts outside the propagated hostPath. Mount them in, or narrow `--mountpoint-include` |
 | new pods never appear | same as above |
 | `nfs_probe_leaked` climbing | mounts hung, not stale. Go cannot cancel a blocked syscall; use `soft` mount options so the kernel gives up |
+| `reason="probe blocked since an earlier cycle"` | a previous statfs on that mount never returned, so it is not re-probed. The mount is hung, not merely stale |
 | a stale app never scales back up | missing `or vector(0)` in the KEDA query |

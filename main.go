@@ -186,9 +186,13 @@ func collect(mountsFile string, incRe, excRe *regexp.Regexp, mountTimeout time.D
 				res.unreached = true
 			default:
 				res.stale = 1
-				res.reason = "timeout"
-				if r.Err != nil {
+				switch {
+				case r.Blocked:
+					res.reason = "probe blocked since an earlier cycle"
+				case r.Err != nil:
 					res.reason = r.Err.Error()
+				default:
+					res.reason = "timeout"
 				}
 			}
 			results[i] = res
