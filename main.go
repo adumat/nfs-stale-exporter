@@ -38,7 +38,12 @@ var (
 
 	discoveredG = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "nfs_mounts_discovered",
-		Help: "NFS mounts seen on this node. Zero means the exporter is blind, not healthy.",
+		Help: "NFS mounts selected for probing on this node. Zero means the exporter is blind, not healthy.",
+	})
+
+	unreachableG = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "nfs_mounts_unreachable",
+		Help: "Mounts listed in the host mount table but not visible in this namespace (ENOENT). Not counted as stale.",
 	})
 
 	leakedG = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -64,36 +69,77 @@ func main() {
 	mountTimeout := flag.Duration("mount-timeout", 5*time.Second, "per-mount statfs deadline")
 	include := flag.String("mountpoint-include", "", "regex; empty means all NFS mounts")
 	exclude := flag.String("mountpoint-exclude", "volume-subpaths", "regex of mountpoints to skip")
-	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on in-flight statfs calls")
+	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on statfs calls started per cycle")
 	serverProbe := flag.Bool("server-probe", true, "TCP-probe each server's port 2049")
 	serverTimeout := flag.Duration("server-probe-timeout", 3*time.Second, "server probe deadline")
 	flag.Parse()
 
-	var incRe, excRe *regexp.Regexp
-	if *include != "" {
-		incRe = regexp.MustCompile(*include)
+	incRe, err := compileOrNil(*include)
+	if err != nil {
+		fatal("invalid --mountpoint-include", err)
 	}
-	if *exclude != "" {
-		excRe = regexp.MustCompile(*exclude)
+	excRe, err := compileOrNil(*exclude)
+	if err != nil {
+		fatal("invalid --mountpoint-exclude", err)
 	}
 
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(staleG, errG, durG, discoveredG, leakedG, reachG, buildG)
+	reg.MustRegister(staleG, errG, durG, discoveredG, unreachableG, leakedG, reachG, buildG)
 	buildG.WithLabelValues(version, revision).Set(1)
+
+	mf := hostMountsFile(*procfsPath)
+	slog.Info("reading mount table", "path", mf)
 
 	go func() {
 		for {
-			collect(filepath.Join(*procfsPath, "mounts"), incRe, excRe, *mountTimeout, *maxProbes, *serverProbe, *serverTimeout)
+			collect(mf, incRe, excRe, *mountTimeout, *maxProbes, *serverProbe, *serverTimeout)
 			time.Sleep(*interval)
 		}
 	}()
 
 	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	slog.Info("listening", "addr", *addr, "version", version)
-	if err := http.ListenAndServe(*addr, nil); err != nil {
-		slog.Error("server failed", "err", err)
-		os.Exit(1)
+	srv := &http.Server{Addr: *addr, ReadHeaderTimeout: 5 * time.Second}
+	if err := srv.ListenAndServe(); err != nil {
+		fatal("server failed", err)
 	}
+}
+
+func fatal(msg string, err error) {
+	slog.Error(msg, "err", err)
+	os.Exit(1)
+}
+
+// compileOrNil treats an empty pattern as "no filter". A bad pattern is a
+// startup error, never a panic with a goroutine dump in the pod log.
+func compileOrNil(pat string) (*regexp.Regexp, error) {
+	if pat == "" {
+		return nil, nil
+	}
+	return regexp.Compile(pat)
+}
+
+// hostMountsFile returns the node's real mount table.
+//
+// /proc/mounts is a symlink to self/mounts, so inside a container it yields the
+// CONTAINER's mount table even when the host /proc is bind-mounted in. The host
+// table has to be read from PID 1 explicitly. Falls back to <procfs>/mounts when
+// 1/mounts cannot be opened, which keeps the exporter usable outside a container.
+func hostMountsFile(procfs string) string {
+	p := filepath.Join(procfs, "1", "mounts")
+	if f, err := os.Open(p); err == nil {
+		_ = f.Close()
+		return p
+	}
+	return filepath.Join(procfs, "mounts")
+}
+
+type result struct {
+	m         mounts.Mount
+	stale     float64
+	reason    string
+	seconds   float64
+	unreached bool
 }
 
 func collect(mountsFile string, incRe, excRe *regexp.Regexp, mountTimeout time.Duration, maxProbes int, doServer bool, serverTimeout time.Duration) {
@@ -119,53 +165,89 @@ func collect(mountsFile string, incRe, excRe *regexp.Regexp, mountTimeout time.D
 		}
 		sel = append(sel, m)
 	}
-	discoveredG.Set(float64(len(sel)))
 
-	// Reset so mounts that disappeared stop reporting.
-	staleG.Reset()
-	errG.Reset()
-	durG.Reset()
-
+	results := make([]result, len(sel))
 	sem := make(chan struct{}, maxProbes)
 	var wg sync.WaitGroup
-	for _, m := range sel {
+	for i, m := range sel {
 		wg.Add(1)
-		go func(m mounts.Mount) {
+		go func(i int, m mounts.Mount) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			r := probe.Statfs(m.Mountpoint, mountTimeout)
-			v := 0.0
-			if !r.OK {
-				v = 1
-				reason := "timeout"
+			res := result{m: m, seconds: r.Duration.Seconds()}
+			switch {
+			case r.OK:
+			case r.NotFound:
+				// Vanished or never visible here. Reporting this as stale would
+				// fire an alert on ordinary pod teardown.
+				res.unreached = true
+			default:
+				res.stale = 1
+				res.reason = "timeout"
 				if r.Err != nil {
-					reason = r.Err.Error()
+					res.reason = r.Err.Error()
 				}
-				errG.WithLabelValues(m.Mountpoint, reason).Set(1)
-				slog.Warn("mount unhealthy", "mountpoint", m.Mountpoint, "reason", reason)
 			}
-			staleG.WithLabelValues(m.Mountpoint, m.Server, m.Export, m.PodUID, m.Volume).Set(v)
-			durG.WithLabelValues(m.Mountpoint).Set(r.Duration.Seconds())
-		}(m)
+			results[i] = res
+		}(i, m)
 	}
 	wg.Wait()
-	leakedG.Set(float64(probe.Leaked.Load()))
 
+	var reach map[string]float64
 	if doServer {
-		reachG.Reset()
 		seen := map[string]bool{}
 		for _, m := range sel {
 			if m.Server != "" {
 				seen[m.Server] = true
 			}
 		}
+		reach = make(map[string]float64, len(seen))
 		for s := range seen {
-			v := 0.0
 			if probe.TCP(net.JoinHostPort(s, "2049"), serverTimeout) {
-				v = 1
+				reach[s] = 1
+			} else {
+				reach[s] = 0
 			}
+		}
+	}
+
+	// Publish only once every probe has finished. Resetting up front and filling
+	// in as results arrive leaves the series ABSENT for the duration of a slow
+	// check - which is exactly when a hung or unreachable mount is being
+	// measured. A scrape landing in that window resets pending alerts and makes
+	// gated KEDA queries evaluate empty.
+	publish(results, reach, doServer)
+}
+
+func publish(results []result, reach map[string]float64, doServer bool) {
+	staleG.Reset()
+	errG.Reset()
+	durG.Reset()
+
+	var probed, unreachable int
+	for _, r := range results {
+		durG.WithLabelValues(r.m.Mountpoint).Set(r.seconds)
+		if r.unreached {
+			unreachable++
+			continue
+		}
+		probed++
+		staleG.WithLabelValues(r.m.Mountpoint, r.m.Server, r.m.Export, r.m.PodUID, r.m.Volume).Set(r.stale)
+		if r.stale == 1 {
+			errG.WithLabelValues(r.m.Mountpoint, r.reason).Set(1)
+			slog.Warn("mount unhealthy", "mountpoint", r.m.Mountpoint, "reason", r.reason)
+		}
+	}
+	discoveredG.Set(float64(probed))
+	unreachableG.Set(float64(unreachable))
+	leakedG.Set(float64(probe.Leaked.Load()))
+
+	if doServer {
+		reachG.Reset()
+		for s, v := range reach {
 			reachG.WithLabelValues(s).Set(v)
 		}
 	}

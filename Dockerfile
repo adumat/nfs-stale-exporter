@@ -1,11 +1,12 @@
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+ARG TARGETARCH
 ARG VERSION=dev
 ARG REVISION=none
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION}" \
       -o /nfs-stale-exporter .
 

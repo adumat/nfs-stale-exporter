@@ -2,6 +2,7 @@
 package probe
 
 import (
+	"errors"
 	"net"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,12 @@ type Result struct {
 	Err      error
 	Duration time.Duration
 	TimedOut bool
+	// NotFound separates "the path is gone, or was never visible in this mount
+	// namespace" from a genuinely stale handle. A pod torn down between reading
+	// the mount table and probing it lands here, and so does any host mount that
+	// is not propagated into the container. Neither is an application fault, so
+	// callers must not report these as stale.
+	NotFound bool
 }
 
 func Statfs(path string, timeout time.Duration) Result {
@@ -30,11 +37,18 @@ func Statfs(path string, timeout time.Duration) Result {
 	}()
 	select {
 	case err := <-ch:
-		return Result{OK: err == nil, Err: err, Duration: time.Since(start)}
+		return Result{
+			OK:       err == nil,
+			Err:      err,
+			Duration: time.Since(start),
+			NotFound: errors.Is(err, unix.ENOENT),
+		}
 	case <-time.After(timeout):
 		Leaked.Add(1)
 		go func() { <-ch; Leaked.Add(-1) }()
-		return Result{Duration: timeout, TimedOut: true}
+		// Measured, not the deadline: a reported duration equal to the timeout
+		// would be indistinguishable from a genuine slow-but-successful check.
+		return Result{Duration: time.Since(start), TimedOut: true}
 	}
 }
 

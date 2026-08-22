@@ -9,3 +9,9 @@ spec:
   podMetricsEndpoints:
     - port: metrics
       interval: 30s
+      # prometheus-operator's default relabelings do NOT map the node name, so
+      # without this every per-node metric and alert is anonymous.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+          action: replace

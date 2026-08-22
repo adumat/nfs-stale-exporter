@@ -1,0 +1,6 @@
+.git
+.github
+deploy
+*.md
+dist
+nfs-stale-exporter
