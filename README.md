@@ -44,7 +44,8 @@ stale, so a probe that reads a known subdirectory passes on a broken mount. This
 | `nfs_mount_stale{mountpoint,server,export,pod_uid,volume}` | `1` if the mount is stale, else `0` |
 | `nfs_mount_check_error{mountpoint,reason}` | `1` if the last check errored; absent when healthy |
 | `nfs_mount_check_duration_seconds{mountpoint}` | time taken to check one mount |
-| `nfs_mounts_discovered` | count of NFS mounts found on the node |
+| `nfs_mounts_discovered` | NFS mounts probed on the node. Zero means blind, not healthy |
+| `nfs_mounts_unreachable` | mounts in the host table not visible here (ENOENT); **not** counted as stale |
 | `nfs_probe_leaked` | count of probes still blocked past their timeout |
 | `nfs_server_reachable{server}` | `1` if the NFS server responds, else `0` |
 | `nfs_stale_exporter_build_info{version,revision}` | build metadata, always `1` |
