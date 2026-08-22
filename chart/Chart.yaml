@@ -1,13 +1,20 @@
----
 apiVersion: v2
 name: nfs-stale-exporter
-description: Detect stale NFS mounts on Kubernetes nodes, per pod, and alert or auto-recover
+description: >-
+  Detect stale NFS mounts on Kubernetes nodes, per pod, and alert or
+  auto-recover
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
-keywords: [nfs, estale, prometheus, exporter, monitoring]
+appVersion: 0.1.0
+keywords:
+  - nfs
+  - estale
+  - prometheus
+  - exporter
+  - monitoring
 home: https://github.com/adumat/nfs-stale-exporter
-sources: [https://github.com/adumat/nfs-stale-exporter]
+sources:
+  - https://github.com/adumat/nfs-stale-exporter
 maintainers:
   - name: adumat
     url: https://github.com/adumat
