@@ -1,0 +1,49 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nfs-stale-exporter
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: nfs-stale-exporter}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: nfs-stale-exporter}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: ghcr.io/adumat/nfs-stale-exporter:v0.1.0
+          args:
+            - --path.procfs=/host/proc
+            - --check-interval=30s
+            - --mount-timeout=5s
+          ports:
+            - {name: metrics, containerPort: 9855}
+          securityContext:
+            # uid 0 is required: as an unprivileged user statfs cannot traverse
+            # /var/lib/kubelet/pods/<uid>/ and every mount reports "permission
+            # denied", which is indistinguishable from a real fault.
+            # CAP_DAC_READ_SEARCH alone does not work - Kubernetes sets no
+            # ambient capabilities, so it never becomes effective for non-root.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"], add: ["DAC_READ_SEARCH"]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: proc, mountPath: /host/proc, readOnly: true}
+            # Mounted at its real path so statfs resolves the same paths
+            # /proc/mounts reports. HostToContainer is mandatory: without it the
+            # exporter only ever sees mounts that existed when it started.
+            - name: kubelet
+              mountPath: /var/lib/kubelet
+              readOnly: true
+              mountPropagation: HostToContainer
+      tolerations:
+        - {operator: Exists}
+      volumes:
+        - {name: proc, hostPath: {path: /proc, type: Directory}}
+        - {name: kubelet, hostPath: {path: /var/lib/kubelet, type: Directory}}
