@@ -11,12 +11,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Leaked counts goroutines still blocked in statfs after their deadline.
-// Go cannot cancel a syscall, so a timeout returns while the goroutine stays
-// parked until the kernel gives up. Soft mounts bound this; hard mounts do not.
+// Leaked counts goroutines still blocked in the probe syscall past their
+// deadline. Go cannot cancel a syscall, so a timeout returns while the
+// goroutine stays parked until the kernel gives up. Soft mounts bound this;
+// hard mounts do not.
 var Leaked atomic.Int64
 
-// inflight holds paths whose statfs has not returned yet. Without this guard a
+// inflight holds paths whose probe has not returned yet. Without this guard a
 // permanently blocked mount is re-probed every cycle, and because each probe
 // pins an OS thread the exporter grows unboundedly until it is OOMKilled -
 // while the mount it exists to report on is still broken. With it, a hung mount
@@ -40,7 +41,31 @@ type Result struct {
 	NotFound bool
 }
 
-func Statfs(path string, timeout time.Duration) Result {
+// Stat probes one mount by resolving its root with lstat(2), bounded by
+// timeout.
+//
+// ⚠️ The syscall choice is the whole point of this function; do not "optimise"
+// it back to statfs(2).
+//
+// This exporter shipped using statfs and was BLIND to the exact failure it
+// exists to detect. statfs reports filesystem-level information and the kernel
+// can answer it from cached superblock data WITHOUT resolving a file handle, so
+// on an NFS mount whose handle has gone stale it returns success. Measured on a
+// real ESTALE mount, same path, same instant:
+//
+//	lstat(path)   -> ESTALE ("stale file handle")
+//	statfs(path)  -> success
+//
+// A stale handle is only observable by a syscall that actually resolves one.
+//
+// It must be the mount ROOT, not a path inside it: ESTALE is per-handle, and
+// the root can be stale while child handles still resolve, so probing a
+// subdirectory passes on a broken mount.
+//
+// Beware synthetic tests here. Deleting the export server-side makes statfs
+// fail too, so a rehearsal built that way passes with either syscall and proves
+// nothing. Verify against a genuinely stale handle.
+func Stat(path string, timeout time.Duration) Result {
 	if _, busy := inflight.Load(path); busy {
 		return Result{TimedOut: true, Blocked: true}
 	}
@@ -48,8 +73,11 @@ func Statfs(path string, timeout time.Duration) Result {
 	inflight.Store(path, struct{}{})
 	ch := make(chan error, 1)
 	go func() {
-		var st unix.Statfs_t
-		err := unix.Statfs(path, &st)
+		var st unix.Stat_t
+		// lstat, not stat: if the mount root is ever replaced by a symlink we
+		// want to fail on it rather than silently follow the link off the mount
+		// and report the wrong filesystem as healthy.
+		err := unix.Lstat(path, &st)
 		inflight.Delete(path)
 		ch <- err
 	}()

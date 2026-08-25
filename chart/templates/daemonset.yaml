@@ -55,7 +55,7 @@ spec:
             - name: proc
               mountPath: {{ .Values.exporter.procfs }}
               readOnly: true
-            # Mounted at the SAME path as on the host so statfs resolves exactly
+            # Mounted at the SAME path as on the host so lstat resolves exactly
             # the paths the mount table reports. HostToContainer is mandatory:
             # without it only mounts existing at container start are visible, and
             # every pod scheduled later is silently invisible.

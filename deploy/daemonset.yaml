@@ -21,7 +21,7 @@ spec:
           ports:
             - {name: metrics, containerPort: 9855}
           securityContext:
-            # uid 0 is required: as an unprivileged user statfs cannot traverse
+            # uid 0 is required: as an unprivileged user lstat cannot traverse
             # /var/lib/kubelet/pods/<uid>/ and every mount reports "permission
             # denied", which is indistinguishable from a real fault.
             # CAP_DAC_READ_SEARCH alone does not work - Kubernetes sets no
@@ -35,7 +35,7 @@ spec:
             limits: {memory: 64Mi}
           volumeMounts:
             - {name: proc, mountPath: /host/proc, readOnly: true}
-            # Mounted at its real path so statfs resolves the same paths
+            # Mounted at its real path so lstat resolves the same paths
             # /proc/mounts reports. HostToContainer is mandatory: without it the
             # exporter only ever sees mounts that existed when it started.
             - name: kubelet

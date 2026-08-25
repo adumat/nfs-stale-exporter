@@ -23,7 +23,7 @@ var version, revision = "dev", "none"
 var (
 	staleG = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "nfs_mount_stale",
-		Help: "1 if statfs on the NFS mount root failed or timed out.",
+		Help: "1 if lstat on the NFS mount root failed or timed out (stale handle, error, or hang).",
 	}, []string{"mountpoint", "server", "export", "pod_uid", "volume"})
 
 	errG = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -33,7 +33,7 @@ var (
 
 	durG = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "nfs_mount_check_duration_seconds",
-		Help: "Duration of the last statfs.",
+		Help: "Duration of the last mount-root lstat.",
 	}, []string{"mountpoint"})
 
 	discoveredG = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -48,7 +48,7 @@ var (
 
 	leakedG = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "nfs_probe_leaked",
-		Help: "Probe goroutines still blocked in statfs past their deadline.",
+		Help: "Probe goroutines still blocked in the mount-root lstat past their deadline.",
 	})
 
 	reachG = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -66,10 +66,10 @@ func main() {
 	addr := flag.String("web.listen-address", ":9855", "metrics listen address")
 	procfsPath := flag.String("path.procfs", "/proc", "procfs mountpoint")
 	interval := flag.Duration("check-interval", 30*time.Second, "time between check cycles")
-	mountTimeout := flag.Duration("mount-timeout", 5*time.Second, "per-mount statfs deadline")
+	mountTimeout := flag.Duration("mount-timeout", 5*time.Second, "per-mount lstat deadline")
 	include := flag.String("mountpoint-include", "", "regex; empty means all NFS mounts")
 	exclude := flag.String("mountpoint-exclude", "volume-subpaths", "regex of mountpoints to skip")
-	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on concurrent in-flight statfs calls")
+	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on concurrent in-flight lstat calls")
 	serverProbe := flag.Bool("server-probe", true, "TCP-probe each server's port 2049")
 	serverTimeout := flag.Duration("server-probe-timeout", 3*time.Second, "server probe deadline")
 	flag.Parse()
@@ -176,7 +176,7 @@ func collect(mountsFile string, incRe, excRe *regexp.Regexp, mountTimeout time.D
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			r := probe.Statfs(m.Mountpoint, mountTimeout)
+			r := probe.Stat(m.Mountpoint, mountTimeout)
 			res := result{m: m, seconds: r.Duration.Seconds()}
 			switch {
 			case r.OK:

@@ -60,7 +60,7 @@ pull failure here is a permissions problem, not a missing image.
 
 ### Why root
 
-`statfs()` on `/var/lib/kubelet/pods/<uid>/volumes/...` requires traversing
+`lstat()` on `/var/lib/kubelet/pods/<uid>/volumes/...` requires traversing
 root-owned directories. Measured on a live cluster:
 
 | runAs | result |
@@ -77,7 +77,7 @@ read-only rootfs, read-only hostPaths, **no ServiceAccount token and no RBAC**.
 
 ```yaml
 - name: kubelet
-  mountPath: /var/lib/kubelet     # same path as the host, so statfs resolves /proc/mounts paths
+  mountPath: /var/lib/kubelet     # same path as the host, so lstat resolves /proc/mounts paths
   readOnly: true
   mountPropagation: HostToContainer
 ```
@@ -252,5 +252,5 @@ Two details that are easy to get backwards:
 | `nfs_mounts_unreachable` is high | the node has NFS mounts outside the propagated hostPath. Mount them in, or narrow `--mountpoint-include` |
 | new pods never appear | same as above |
 | `nfs_probe_leaked` climbing | mounts hung, not stale. Go cannot cancel a blocked syscall; use `soft` mount options so the kernel gives up |
-| `reason="probe blocked since an earlier cycle"` | a previous statfs on that mount never returned, so it is not re-probed. The mount is hung, not merely stale |
+| `reason="probe blocked since an earlier cycle"` | a previous probe on that mount never returned, so it is not re-probed. The mount is hung, not merely stale |
 | a stale app never scales back up | missing `or vector(0)` in the KEDA query |

@@ -37,6 +37,26 @@ A child handle (e.g. a `subPath` bind) can stay valid while the mount root is al
 stale, so a probe that reads a known subdirectory passes on a broken mount. This is why
 `volume-subpaths` binds are excluded — only the volume root is probed.
 
+## Probe with `lstat`, not `statfs`
+
+A stale handle is only visible to a syscall that actually **resolves** one. `statfs()`
+reports filesystem-level information and the kernel can answer it from cached superblock
+data without touching the handle, so it returns success on a mount that is already stale.
+
+Measured on a real ESTALE mount, same path, same instant:
+
+```
+lstat(path)   -> ESTALE ("stale file handle")
+statfs(path)  -> success
+```
+
+Versions up to v0.1.0 used `statfs` and therefore reported genuinely stale mounts as
+healthy — the exact failure this exporter exists to detect. Fixed in v0.2.0.
+
+⚠️ This also makes synthetic tests misleading. Removing the export server-side makes
+`statfs` fail too, so a rehearsal built that way passes with either syscall and proves
+nothing. Verify against a genuinely stale handle.
+
 ## Metrics
 
 | metric | description |

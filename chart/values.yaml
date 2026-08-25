@@ -29,11 +29,11 @@ exporter:
   extraArgs: []
 
 # Host path of the kubelet root. Mounted at the SAME path inside the container
-# so statfs resolves exactly the paths /proc/1/mounts reports. Distros differ:
+# so lstat resolves exactly the paths /proc/1/mounts reports. Distros differ:
 # k0s uses /var/lib/k0s/kubelet, microk8s /var/snap/microk8s/common/var/lib/kubelet.
 kubeletDir: /var/lib/kubelet
 
-# uid 0 is REQUIRED. Unprivileged, statfs cannot traverse
+# uid 0 is REQUIRED. Unprivileged, lstat cannot traverse
 # /var/lib/kubelet/pods/<uid>/ and every mount reports "permission denied",
 # which is indistinguishable from a real fault. CAP_DAC_READ_SEARCH alone does
 # not help: Kubernetes sets no ambient capabilities, so it never becomes
