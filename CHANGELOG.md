@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/adumat/nfs-stale-exporter/compare/v0.1.0...v0.1.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* probe with lstat, not statfs — statfs cannot see a stale handle ([6b11299](https://github.com/adumat/nfs-stale-exporter/commit/6b1129980369616ac1d53428b9a9365586b87324))
+
 ## 0.1.0 (2026-08-22)
 
 
