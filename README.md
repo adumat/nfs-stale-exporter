@@ -50,8 +50,9 @@ lstat(path)   -> ESTALE ("stale file handle")
 statfs(path)  -> success
 ```
 
-Versions up to v0.1.0 used `statfs` and therefore reported genuinely stale mounts as
-healthy — the exact failure this exporter exists to detect. Fixed in v0.2.0.
+**v0.1.0 and earlier used `statfs`** and therefore reported genuinely stale mounts as
+healthy — the exact failure this exporter exists to detect. If you are running v0.1.0,
+upgrade.
 
 ⚠️ This also makes synthetic tests misleading. Removing the export server-side makes
 `statfs` fail too, so a rehearsal built that way passes with either syscall and proves
