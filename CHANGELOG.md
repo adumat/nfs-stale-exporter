@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/adumat/nfs-stale-exporter/compare/v0.1.1...v0.1.2) (2026-09-01)
+
+
+### Bug Fixes
+
+* probe volume-subpaths binds, they go stale independently of the root ([2ea6b55](https://github.com/adumat/nfs-stale-exporter/commit/2ea6b550269efc7e767944c8cc2a85bdfa15a3a6))
+
 ## [0.1.1](https://github.com/adumat/nfs-stale-exporter/compare/v0.1.0...v0.1.1) (2026-08-25)
 
 
