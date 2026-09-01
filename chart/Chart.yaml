@@ -4,8 +4,8 @@ description: >-
   Detect stale NFS mounts on Kubernetes nodes, per pod, and alert or
   auto-recover
 type: application
-version: 0.1.1
-appVersion: 0.1.1
+version: 0.1.2
+appVersion: 0.1.2
 keywords:
   - nfs
   - estale
