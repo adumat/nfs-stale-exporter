@@ -19,10 +19,13 @@ exporter:
   # Empty means every NFS mount. Narrow it if the node has NFS mounts outside
   # the kubelet directory that are not propagated into the container.
   mountpointInclude: ""
-  # subPath binds are CHILDREN of the volume. A child handle can stay valid
-  # while the mount root is already stale, so probing one reports healthy on a
-  # broken mount. Do not remove this.
-  mountpointExclude: volume-subpaths
+  # Empty on purpose. This used to exclude `volume-subpaths` on the theory that
+  # a subPath bind is a CHILD of the volume, so the root already covers it.
+  # That is wrong: kubelet mounts a subPath as its own NFS mount, and it goes
+  # stale independently of the root. Measured 2026-09-01 - the root lstat'd
+  # fine while the subPath returned ESTALE, the container saw a dead mount, and
+  # the exporter reported the node healthy for five days.
+  mountpointExclude: ""
   maxConcurrentProbes: 32
   serverProbe: true
   serverProbeTimeout: 3s

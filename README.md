@@ -31,11 +31,29 @@ Measured:
 The usual fix on Docker and bare hosts. Unavailable here because kubelet owns the mount
 lifecycle.
 
-## Probe the root, not a subdirectory
+## Probe the root of every mount
 
-A child handle (e.g. a `subPath` bind) can stay valid while the mount root is already
-stale, so a probe that reads a known subdirectory passes on a broken mount. This is why
-`volume-subpaths` binds are excluded — only the volume root is probed.
+A child handle can stay valid while the mount root is already stale, so a probe that reads
+a known **subdirectory** passes on a broken mount. Probe the root.
+
+"Root" means the root of *every* mount in the table — and that includes kubelet's
+`volume-subpaths` binds. A `subPath` looks like a subdirectory but kubelet implements it as
+a **separate NFS mount**, which goes stale independently of the volume root:
+
+```
+elizabeth.lan:/mnt/user/media            → .../volumes/kubernetes.io~nfs/metube-media   lstat OK
+elizabeth.lan:/mnt/user/media/downloads  → .../volume-subpaths/metube-media/app/2       ESTALE
+```
+
+Earlier versions excluded `volume-subpaths` by default, reasoning that the volume root
+already covered it. It does not. Measured on two separate nodes on 2026-09-01: the root
+probed healthy while the container saw a dead `/downloads`, and because the KEDA scaler
+reads this metric, the self-heal never fired either — the mount stayed broken for five days
+until it was fixed by hand.
+
+Both mounts are now probed. They share `pod_uid` and `volume` and differ by `mountpoint`,
+so they are separate series for the same pod and an aggregation like
+`max by (namespace, deployment)` flags the deployment if *either* is stale.
 
 ## Probe with `lstat`, not `statfs`
 

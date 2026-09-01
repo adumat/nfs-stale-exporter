@@ -8,16 +8,32 @@ import (
 	"strings"
 )
 
-// Only the volume ROOT is a valid probe target. subPath binds are children and
-// stay resolvable while the root is already stale - they live under
-// /volume-subpaths/ and so cannot match this.
-//
 // The plugin segment is deliberately wide (`kubernetes.io~[^/]+`) rather than
 // pinned to `~nfs`: csi-driver-nfs mounts under `~csi/<pv>/mount`, and the pod
 // UID sits in the same place whichever plugin did the mounting. Only NFS-fstype
 // lines reach here anyway. Pinning it would still probe CSI mounts but export
 // them with an empty pod_uid, dropping them silently from the identity join.
 var kubeletRe = regexp.MustCompile(`^/var/lib/kubelet/pods/([^/]+)/volumes/kubernetes\.io~[^/]+/([^/]+)(?:/mount)?$`)
+
+// subPath binds are SEPARATE NFS mounts, not subdirectories of the volume root,
+// and they go stale independently of it.
+//
+// This was originally assumed to be impossible - the old comment here claimed
+// subPath binds "stay resolvable while the root is already stale", and
+// main.go excluded /volume-subpaths/ by default on that basis. The opposite was
+// measured on 2026-09-01: metube's root mount lstat'd fine on two different
+// nodes while its subPath bind returned ESTALE, so the container saw a dead
+// /downloads and the exporter reported the node healthy. Because the KEDA
+// scaler reads that metric, the self-heal never fired either.
+//
+//	.../volumes/kubernetes.io~nfs/metube-media    -> lstat OK
+//	.../volume-subpaths/metube-media/app/2        -> ESTALE
+//
+// Decoding pod UID and volume from these is what keeps them in the identity
+// join; exporting them with empty labels would drop them again, just further
+// downstream. The mountpoint label still differs from the root's, so the two
+// coexist as separate series for the same (pod, volume).
+var subPathRe = regexp.MustCompile(`^/var/lib/kubelet/pods/([^/]+)/volume-subpaths/([^/]+)/[^/]+/\d+$`)
 
 type Mount struct {
 	Device     string
@@ -69,6 +85,8 @@ func Parse(r io.Reader) ([]Mount, error) {
 			m.Server, m.Export = m.Device[:i], m.Device[i+1:]
 		}
 		if g := kubeletRe.FindStringSubmatch(m.Mountpoint); g != nil {
+			m.PodUID, m.Volume = g[1], g[2]
+		} else if g := subPathRe.FindStringSubmatch(m.Mountpoint); g != nil {
 			m.PodUID, m.Volume = g[1], g[2]
 		}
 		out = append(out, m)

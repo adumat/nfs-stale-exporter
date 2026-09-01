@@ -62,6 +62,12 @@ type Result struct {
 // the root can be stale while child handles still resolve, so probing a
 // subdirectory passes on a broken mount.
 //
+// "Root" means the root of EVERY mount in the table, which includes kubelet's
+// /volume-subpaths/ binds. Those are separate NFS mounts, not subdirectories,
+// and they go stale independently - do not skip them on the grounds that the
+// volume root is already covered. That reasoning shipped once and cost five
+// days of a silently dead mount; see the note on subPathRe in internal/mounts.
+//
 // Beware synthetic tests here. Deleting the export server-side makes statfs
 // fail too, so a rehearsal built that way passes with either syscall and proves
 // nothing. Verify against a genuinely stale handle.

@@ -68,7 +68,11 @@ func main() {
 	interval := flag.Duration("check-interval", 30*time.Second, "time between check cycles")
 	mountTimeout := flag.Duration("mount-timeout", 5*time.Second, "per-mount lstat deadline")
 	include := flag.String("mountpoint-include", "", "regex; empty means all NFS mounts")
-	exclude := flag.String("mountpoint-exclude", "volume-subpaths", "regex of mountpoints to skip")
+	// Default empty, NOT "volume-subpaths". Excluding those was the exporter's
+	// second blind spot: a subPath bind is its own NFS mount and goes stale on
+	// its own, so skipping it hides exactly the failure this tool exists to
+	// find. See the note on subPathRe in internal/mounts.
+	exclude := flag.String("mountpoint-exclude", "", "regex of mountpoints to skip; empty means skip none")
 	maxProbes := flag.Int("max-concurrent-probes", 32, "cap on concurrent in-flight lstat calls")
 	serverProbe := flag.Bool("server-probe", true, "TCP-probe each server's port 2049")
 	serverTimeout := flag.Duration("server-probe-timeout", 3*time.Second, "server probe deadline")
